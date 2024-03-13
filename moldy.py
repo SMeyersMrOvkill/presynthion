@@ -1,7 +1,9 @@
+import os
 import random
 import json
 import random
 import json
+import time
 import xml.etree.ElementTree as ET
 
 def generate_random_polygon():
@@ -49,13 +51,7 @@ def generate_random_polygon():
     # Generate the polygon based on the chosen shape
      # Generate the polygon based on the chosen shape
     fill_choice = random.choice(['gradient', 'random', 'none'])
-    if fill_choice == 'gradient':
-        colors = [f'rgb({random.random()}, {random.random()}, {random.random()})' for _ in range(2)]
-        gradient = ET.Element('linearGradient', {'id': 'grad', 'x1': '0%', 'y1': '0%', 'x2': '100%', 'y2': '100%'})
-        for i, color in enumerate(colors):
-            ET.SubElement(gradient, 'stop', {'offset': f'{i / (len(colors) - 1):.2f}', 'stop-color': color})
-        fill = 'url(#grad)'
-    elif fill_choice == 'random':
+    if fill_choice == 'random' or fill_choice == 'gradient':
         fill_color = f'rgb({random.randrange(0,255)}, {random.randrange(0,255)}, {random.randrange(0,255)})'
         fill = fill_color
     else:
@@ -121,8 +117,6 @@ def generate_random_polygon():
 
     # Create the SVG image and add the polygon
     svg = ET.Element('svg', {'xmlns': 'http://www.w3.org/2000/svg', 'width': '512', 'height': '512'})
-    if fill_choice == 'gradient':
-        svg.append(gradient)
     svg.append(polygon)
     tree = ET.ElementTree(svg)
 
@@ -150,6 +144,7 @@ from PySide6.QtCore import QTimer, Qt
 
 import json
 import xml.etree.ElementTree as ET
+import twogather
 
 def combine_svg_images(svg1_root, props1, svg2_root, props2):
     # Append the content of the second SVG to the first SVG
@@ -171,6 +166,7 @@ def combine_svg_images(svg1_root, props1, svg2_root, props2):
 ds = open("random-shapes-tiny.jsonl", "w")
 
 MAX_LENGTH = 1024*1000*1000*5
+TOGETHER_KEY = "ed51fcb501526449adb679ffab2d104d665a8728e62542e5c7aa08b058204ff7"
 
 global rows
 rows = 0
@@ -189,9 +185,11 @@ class SVGSlideshow(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_polygon)
         self.timer.start(1)  # Update every 1ms
+        self.two = twogather.Two(api_key=TOGETHER_KEY)
 
     def update_polygon(self):
         global rows
+        sts = time.time()
         svg_image, json_dict = generate_random_polygon()
         if ing := random.randrange(1, 16) > 4:
             for nm in range(ing):
@@ -202,17 +200,33 @@ class SVGSlideshow(QWidget):
         svg_image.write("random_polygon.svg")
 
         self.svg_widget.load('random_polygon.svg')
-        
         fn = open("random_polygon.svg", "r")
-
-        ds.write(json.dumps({
-            "svg": fn.read(),
-            "props": json_dict
-        }) + "\n")
-        ds.flush()
+        txt = fn.read()
         fn.close()
+        mn = random.randbytes(8).hex()
+        prompt = "Describe the image. Specifially describe every position and color of, and count of objects in the image. Describe them as though you were desribing the image itself. Do not say anything other than the desription. Here is the JSON and the SVG respectively. ```json"+json.dumps(json_dict) + "``` SVG Image: ```svg" + txt + "``` Describe the positions and details of every object in the scene in less than 1 paragraph. Your response will only be accepted if the string '{}' are the first and last characters in the response other than whitespace.".format(mn).strip()
+        desc, opr = self.two(self.two.prompt(prompt))
+        desc = desc["choices"][0]["message"]["content"].replace(opr, "").strip()
+        swew = desc.startswith(mn) and desc.endswith(mn)
+        ett = time.time()
+        tss = sts - ett
+        while len(desc) < 16 and not swew:
+            desc, opr = self.two(self.two.prompt(prompt))
+            desc = desc["choices"][0]["message"]["content"].replace(opr, "").strip().replace(mn, "").replace(mn, "")
+            swew = desc.startswith(mn) and desc.endswith(mn)
+            ett = time.time()
+            tss = sts - ett
+        obj = json.dumps({
+            "svg": txt,
+            "props": json_dict,
+            "desc": desc
+        }) + "\n"
+        
+        ds.write(obj)
+        print(obj, f"\nGenerated in {tss} seconds")
+        ds.flush()
         rows += 1
-        self.setWindowTitle(str(rows))
+        self.setWindowTitle(str(rows) + "-" + desc)
 
 if __name__ == '__main__':
     app = QApplication([])
