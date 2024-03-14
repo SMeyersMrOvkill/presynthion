@@ -3,11 +3,11 @@ import os
 import requests
 
 class Two():
-    def __init__(self, model_name: str = "google/gemma-2b-it", api_key: str = None):
+    def __init__(self, model_name: str =  "teknium/OpenHermes-2p5-Mistral-7B", api_key: str = None):
         self.model_name = model_name
         self.api_key = api_key
     def prompt(self, prompt: str):
-        return "<startofturn>system\nYou are a verbally descriptive but otherwise silent SVG/JSON to English text description engine. You only care about positions and sizes. <endofturn>\n<startofturn>user\n" + prompt + " <endofturn>\n<startofturn>model"        
+        return "<|im_start|>system\nYou are a verbally descriptive but otherwise silent SVG/JSON to English text description engine. You only care about positions and sizes. \n <|im_end|> \n <|im_start|>user \n " + prompt + " <|im_end|> \n <|im_start|>assistant"        
     def __call__(self, prompt):
         hdr = {
             "Authorization": f"Bearer {self.api_key}"

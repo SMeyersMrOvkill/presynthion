@@ -1,8 +1,12 @@
+import hashlib
 import os
+import pathlib
+import queue
 import random
 import json
 import random
 import json
+import threading
 import time
 import xml.etree.ElementTree as ET
 
@@ -163,13 +167,58 @@ def combine_svg_images(svg1_root, props1, svg2_root, props2):
 
     return ET.parse("tmp.svg"), combined_props
 
-ds = open("random-shapes-tiny.jsonl", "w")
+global kyew
+kyew = queue.Queue()
 
-MAX_LENGTH = 1024*1000*1000*5
+def saverow():
+    ds = open("random-shapes-tiny.jsonl", "a")
+    ds.seek(os.SEEK_END)
+    print(f"Starting at byte {ds.tell()}")
+    ds.write(json.dumps({
+        
+    }))
+
+MAX_LENGTH = 100000
 TOGETHER_KEY = "ed51fcb501526449adb679ffab2d104d665a8728e62542e5c7aa08b058204ff7"
 
 global rows
 rows = 0
+
+two = twogather.Two(api_key=TOGETHER_KEY)
+
+def kyew_loop():
+    global kyew
+    processed = 0
+    total = 16384
+    f = open("objectify.jsonl", "a")
+    while processed < total:
+        parsed = False
+        count = 0
+        while not parsed:
+            ntries = 0
+            try:
+                ntries += 1
+                jsn = kyew.get_nowait()
+                print(f"Processing row '{jsn['hexid']}'...\n", jsn)
+                # Process row...
+                tm = jsn["time"]
+                fn = open(jsn["loc"], "r")
+                txt = fn.read()
+                fn.close()
+                prompt = "In a few words, caption the image in the provided JSON. An example would be, for JSON: ```{\"shape\": \"Triangle\", \"position\": {\"x\": 24, \"y\": 302}...}``` You might output: A yellow trangle at x24y302.\nJSON: " + json.dumps(jsn["params"])
+                desc, opr = two(two.prompt(prompt))
+                print("### BOT\n\t", desc)
+                desc = desc["choices"][0]["text"].replace(opr, "").strip()
+                processed += 1
+                ett = time.time()
+                print(f"Processed {jsn['hexid']}. Round-trip {(ett-tm):.2f}")
+                parsed = True
+            except Exception as e:
+                time.sleep(0.1)
+                print(e)
+                parsed = False
+                if ntries > 16:
+                    continue
 
 class SVGSlideshow(QWidget):
     def __init__(self):
@@ -184,51 +233,34 @@ class SVGSlideshow(QWidget):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_polygon)
-        self.timer.start(1)  # Update every 1ms
-        self.two = twogather.Two(api_key=TOGETHER_KEY)
+        self.timer.start(1)  # Update every 1mg
+        self.hd = "svg/" if os.path.exists("svg") else "./"
 
     def update_polygon(self):
         global rows
-        sts = time.time()
+        stt = time.time()
         svg_image, json_dict = generate_random_polygon()
         if ing := random.randrange(1, 16) > 4:
             for nm in range(ing):
                 svg_img, props = generate_random_polygon()
                 svg_image, json_dict = combine_svg_images(svg_image.getroot(), json_dict, svg_img.getroot(), props)
-        with open('polygon_data.json', 'w') as json_file:
+        with open(self.hd + 'polygon_data.json', 'a') as json_file:
             json.dump(json_dict, json_file)
-        svg_image.write("random_polygon.svg")
-
-        self.svg_widget.load('random_polygon.svg')
-        fn = open("random_polygon.svg", "r")
+        svg_image.write(f"{self.hd}random_polygon.{stt:.2f}.svg")
+        self.svg_widget.load(f'{self.hd}random_polygon.{stt:.2f}.svg')
+        fn = open(f"{self.hd}/random_polygon.{stt:.2f}.svg", "r")
         txt = fn.read()
         fn.close()
-        mn = random.randbytes(8).hex()
-        prompt = "Describe the image. Specifially describe every position and color of, and count of objects in the image. Describe them as though you were desribing the image itself. Do not say anything other than the desription. Here is the JSON and the SVG respectively. ```json"+json.dumps(json_dict) + "``` SVG Image: ```svg" + txt + "``` Describe the positions and details of every object in the scene in less than 1 paragraph. Your response will only be accepted if the string '{}' are the first and last characters in the response other than whitespace.".format(mn).strip()
-        desc, opr = self.two(self.two.prompt(prompt))
-        desc = desc["choices"][0]["message"]["content"].replace(opr, "").strip()
-        swew = desc.startswith(mn) and desc.endswith(mn)
-        ett = time.time()
-        tss = sts - ett
-        while len(desc) < 16 and not swew:
-            desc, opr = self.two(self.two.prompt(prompt))
-            desc = desc["choices"][0]["message"]["content"].replace(opr, "").strip().replace(mn, "").replace(mn, "")
-            swew = desc.startswith(mn) and desc.endswith(mn)
-            ett = time.time()
-            tss = sts - ett
-        obj = json.dumps({
-            "svg": txt,
-            "props": json_dict,
-            "desc": desc
-        }) + "\n"
-        
-        ds.write(obj)
-        print(obj, f"\nGenerated in {tss} seconds")
-        ds.flush()
+        hexid = hashlib.sha256(txt.encode("utf-8")).hexdigest()
         rows += 1
-        self.setWindowTitle(str(rows) + "-" + desc)
+        kyew.put({"hexid": hexid, "time": stt, "svg": txt, "params": json_dict, "loc": f"{self.hd}random_polygon.{stt:.2f}.svg"})
+        ett = time.time() - stt
+        print(f"Took {ett} ms.")
+        time.sleep(0.1)
 
 if __name__ == '__main__':
+    t = threading.Thread(target=kyew_loop, daemon=True)
+    t.start()
     app = QApplication([])
     slideshow = SVGSlideshow()
     slideshow.show()
